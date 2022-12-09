@@ -7,10 +7,14 @@ import re
 
 
 class ConvertBot:
-
-    def __init__(self):
+    def __init__(self, source='cryptocompare.com'):
         self.message = None
-        self.q = ConvertCurrency()
+        self.source = source
+        if self.source == 'MOEX':
+            self.q = ConvertCurrencyMOEX()
+            print(self.q.first_request['marketdata']['data'][0][8])
+        else:
+            self.q = ConvertCurrency()
 
         self.bot = telebot.TeleBot(bot_token.TOKEN)
 
@@ -22,7 +26,7 @@ class ConvertBot:
                            "юань": "CNY", "юаней": "CNY", "юанях": "CNY", "юанем": "CNY", "юаням": "CNY", "юани": "CNY"
                            }
         self.filter_words = ["в", "за", "на", ""]
-        self.markup = types.ReplyKeyboardMarkup(row_width=2)
+        self.markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
         self.itembtn1 = types.KeyboardButton('/start')
         self.itembtn2 = types.KeyboardButton('/values')
         self.markup.add(self.itembtn1, self.itembtn2)
@@ -35,10 +39,7 @@ class ConvertBot:
         pass
 
     def handle_start_help(self, message):
-        r = requests.get('https://min-api.cryptocompare.com/data/price?fsym=USD&tsyms=JPY,EUR,RUB')
-        r = json.loads(r.content)
-
-        msg = f"Приветствую, {message.chat.first_name}!\nСегодня один доллар $ США стоит {r['RUB']} руб. ₽\n" \
+        msg = f"Приветствую, {message.chat.first_name}!\nСегодня один доллар $ США стоит {self.q.first_request['marketdata']['data'][0][8]} руб. ₽\n" \
               f"Отправь мне сообщение вида\n" \
               f"<имя валюты цену которой хочешь узнать> <имя валюты в которой надо узнать цену первой валюты> <количество " \
               f"первой валюты>\n" \
@@ -63,6 +64,8 @@ class ConvertBot:
     def handle_values_help(self, message):
         msg = f"Я могу перевести следующие валюты между собой:\n" \
               f"Рубль, доллар, евро, йена, юань."
+        if self.source == 'MOEX':
+            msg = msg+'\nПеревод осуществляется на основе курсов валют с Мосбиржи.'
 
         self.bot.send_message(message.chat.id, msg, reply_markup=self.markup)
         self.message = message
@@ -114,11 +117,9 @@ class ConvertBot:
 
 
 class ConvertCurrency:
-    def __int__(self):
-        self.r = requests.get('https://min-api.cryptocompare.com/data/price?fsym=USD&tsyms=JPY,EUR,RUB')
-        self.r = json.loads(self.r.content)
-        return self.r
-        pass
+    def __init__(self):
+        self.first_request = json.loads(
+            requests.get('https://min-api.cryptocompare.com/data/price?fsym=USD&tsyms=RUB').content)
 
     @staticmethod
     def get_price(base, quote, amount):
@@ -135,3 +136,77 @@ class ConvertCurrency:
 
 class APIException(Exception):
     pass
+
+
+class ConvertCurrencyMOEX(ConvertCurrency):
+    def __init__(self):
+        super().__init__()
+        self.first_request = json.loads(
+            requests.get(f'http://iss.moex.com/iss/engines/currency/markets/selt/securities.json?iss.only=securities,'
+                         f'marketdata&securities=CETS:USD000000TOD&iss.meta=off').content)
+
+    @staticmethod
+    def get_price(base, quote, amount):
+        inversed = None
+        ticker1_inv = False
+        ticker2_inv = False
+        currency_tickers = {'USDRUB': 'USD000000TOD', 'USDJPY': 'USDJPY_TOD', 'USDCNY': 'USDCNY_TOD',
+                            'JPYRUB': 'JPYRUB_TOD',
+                            'CNYRUB': 'CNY000000TOD',
+                            'EURUSD': 'EURUSD000TOD', 'EURRUB': 'EUR_RUB__TOD'
+                            }
+        inversed_tickers = {'USDEUR': 'EURUSD000TOD',
+                            'RUBUSD': 'USD000000TOD', 'RUBJPY': 'JPYRUB_TOD', 'RUBCNY': 'CNY000000TOD',
+                            'RUBEUR': 'EUR_RUB__TOD',
+                            'JPYUSD': 'USDJPY_TOD', 'CNYUSD': 'USDCNY_TOD'}
+
+        no_tickers = {'JPYCNY': '', 'JPYEUR': '',
+                      'CNYJPY': '', 'CNYEUR': '',
+                      'EURJPY': '', 'EURCNY': ''}
+        if base + quote in currency_tickers:
+            url = f'http://iss.moex.com/iss/engines/currency/markets/selt/securities.json?iss.only=securities,' \
+                  f'marketdata&securities=CETS:{currency_tickers.get(base + quote)}&iss.meta=off '
+        elif base + quote in inversed_tickers:
+            inversed = True
+            url = f'http://iss.moex.com/iss/engines/currency/markets/selt/securities.json?iss.only=securities,' \
+                  f'marketdata&securities=CETS:{currency_tickers.get(quote + base)}&iss.meta=off '
+        else:
+            if base == 'EUR':
+                ticker1 = currency_tickers.get('EURUSD')
+                ticker1_inv = True
+            else:
+                ticker1 = currency_tickers.get("USD" + base)
+            if quote == 'EUR':
+                ticker2 = currency_tickers.get('EURUSD')
+                ticker2_inv = True
+            else:
+                ticker2 = currency_tickers.get("USD" + quote)
+            url1 = f'http://iss.moex.com/iss/engines/currency/markets/selt/securities.json?iss.only=securities,' \
+                   f'marketdata&securities=CETS:{ticker1}&iss.meta=off '
+            url2 = f'http://iss.moex.com/iss/engines/currency/markets/selt/securities.json?iss.only=securities,' \
+                   f'marketdata&securities=CETS:{ticker2}&iss.meta=off '
+            try:
+                r1 = json.loads(requests.get(url1).content)
+                r2 = json.loads(requests.get(url2).content)
+            except Exception as e:
+                print('Error')
+                print(e)
+                raise APIException()
+            if ticker1_inv:
+                return (r2['securities']['data'][0][15] / (1/r1['securities']['data'][0][15])) * amount
+            if ticker2_inv:
+                return ((1/r2['securities']['data'][0][15])/ r1['securities']['data'][0][15]) * amount
+            else:
+                return (r2['securities']['data'][0][15] / r1['securities']['data'][0][15]) * amount
+                raise APIException()
+        try:
+            r = json.loads(requests.get(url).content)
+        except Exception as e:
+            print('Error')
+            print(e)
+            raise APIException()
+
+        if inversed:
+            return 1 / r['securities']['data'][0][15] * amount
+        else:
+            return r['securities']['data'][0][15] * amount
