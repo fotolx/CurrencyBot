@@ -4,6 +4,7 @@ import telebot
 from telebot import types
 import bot_token
 import re
+import datetime
 
 
 class ConvertBot:
@@ -12,7 +13,6 @@ class ConvertBot:
         self.source = source
         if self.source == 'MOEX':
             self.q = ConvertCurrencyMOEX()
-            print(self.q.first_request['marketdata']['data'][0][8])
         else:
             self.q = ConvertCurrency()
 
@@ -23,7 +23,8 @@ class ConvertBot:
                            "евро": "EUR", "евров": "EUR",
                            "йена": "JPY", "иена": "JPY", "иен": "JPY", "иены": "JPY", "иенах": "JPY",
                            "йен": "JPY", "йены": "JPY", "йенах": "JPY",
-                           "юань": "CNY", "юаней": "CNY", "юанях": "CNY", "юанем": "CNY", "юаням": "CNY", "юани": "CNY"
+                           "юань": "CNY", "юаней": "CNY", "юанях": "CNY", "юанем": "CNY", "юаням": "CNY", "юани": "CNY",
+                           "лир": "TRY", "лиры": "TRY", "лирах": "TRY", "лиров": "TRY"
                            }
         self.filter_words = ["в", "за", "на", ""]
         self.markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
@@ -39,13 +40,16 @@ class ConvertBot:
         pass
 
     def handle_start_help(self, message):
-        msg = f"Приветствую, {message.chat.first_name}!\nСегодня один доллар $ США стоит {self.q.first_request['marketdata']['data'][0][8]} руб. ₽\n" \
+        self.show_user_info(message)
+        msg = f"Приветствую, {message.chat.first_name}!\nСегодня один доллар $ США стоит {self.q.first_request()['marketdata']['data'][0][8]} ₽\n" \
               f"Отправь мне сообщение вида\n" \
               f"<имя валюты цену которой хочешь узнать> <имя валюты в которой надо узнать цену первой валюты> <количество " \
               f"первой валюты>\n" \
               f"Йена юань 150\n" \
               f"или\n" \
               f"300 долларов в рублях\n" \
+              f"или\n" \
+              f"1000 рублей в лирах\n" \
               f"И я пришлю тебе ответ, сколько стоит валюта.\n" \
               f"Мои команды:\n" \
               f"/start - приветствие\n" \
@@ -62,8 +66,9 @@ class ConvertBot:
         pass
 
     def handle_values_help(self, message):
+        self.show_user_info(message)
         msg = f"Я могу перевести следующие валюты между собой:\n" \
-              f"Рубль, доллар, евро, йена, юань."
+              f"Рубль, доллар, евро, йена, юань, турецкая лира."
         if self.source == 'MOEX':
             msg = msg+'\nПеревод осуществляется на основе курсов валют с Мосбиржи.'
 
@@ -72,6 +77,7 @@ class ConvertBot:
         pass
 
     def handle_calc(self, message):
+        self.show_user_info(message)
         msg_split = re.split("[.:;, ]", str(message.text))
         msg_split = list(filter(lambda s: s not in self.filter_words, msg_split))
         amount = None
@@ -85,8 +91,6 @@ class ConvertBot:
         if amount is None:
             self.bot.send_message(message.chat.id, 'Не указано количество валюты')
             return
-        else:
-            print(amount)
         if len(convert) != 2:
             self.bot.send_message(message.chat.id, 'Не распознана валюта')
             self.handle_values_help(message)
@@ -99,8 +103,9 @@ class ConvertBot:
             self.bot.send_message(message.chat.id, 'Укажите разные валюты')
             self.handle_values_help(message)
             raise APIException
-        price = round(self.q.get_price(self.currencies.get(convert[0].lower()),
-                                       self.currencies.get(convert[1].lower()), amount), 2)
+        price = '{:,}'.format(round(self.q.get_price(self.currencies.get(convert[0].lower()),
+                                       self.currencies.get(convert[1].lower()), amount), 2)).replace(',', ' ')
+        amount = '{:,}'.format(amount).replace(',', ' ')
         self.bot.send_message(message.chat.id, f"{amount} {convert[0].lower()} в {convert[1].lower()} равно {price}",
                               reply_markup=self.markup)
         self.message = message
@@ -108,6 +113,7 @@ class ConvertBot:
 
     # Обрабатываются все изображения, аудиозаписи и стикеры
     def handle_docs_image(self, message):
+        self.show_user_info(message)
         self.bot.send_message(message.chat.id, 'Прикольно )))', reply_markup=self.markup)
         pass
 
@@ -115,10 +121,17 @@ class ConvertBot:
         self.bot.send_message(self.message.chat.id, 'Возникла проблема )))', reply_markup=self.markup)
         pass
 
+    def show_user_info(self, message):
+        log = f'{datetime.datetime.today()} | id: {message.chat.id} | {message.chat.first_name} {message.chat.last_name} | username: {message.chat.username} |{message.text}\n'
+        print(log)
+        with open('currency_bot_log.txt', 'a') as f:
+            f.write(log)
 
 class ConvertCurrency:
-    def __init__(self):
-        self.first_request = json.loads(
+
+    @staticmethod
+    def first_request():
+        return json.loads(
             requests.get('https://min-api.cryptocompare.com/data/price?fsym=USD&tsyms=RUB').content)
 
     @staticmethod
@@ -139,10 +152,10 @@ class APIException(Exception):
 
 
 class ConvertCurrencyMOEX(ConvertCurrency):
-    def __init__(self):
-        super().__init__()
-        self.first_request = json.loads(
-            requests.get(f'http://iss.moex.com/iss/engines/currency/markets/selt/securities.json?iss.only=securities,'
+
+    @staticmethod
+    def first_request():
+        return json.loads(requests.get(f'http://iss.moex.com/iss/engines/currency/markets/selt/securities.json?iss.only=securities,'
                          f'marketdata&securities=CETS:USD000000TOD&iss.meta=off').content)
 
     @staticmethod
@@ -153,16 +166,24 @@ class ConvertCurrencyMOEX(ConvertCurrency):
         currency_tickers = {'USDRUB': 'USD000000TOD', 'USDJPY': 'USDJPY_TOD', 'USDCNY': 'USDCNY_TOD',
                             'JPYRUB': 'JPYRUB_TOD',
                             'CNYRUB': 'CNY000000TOD',
-                            'EURUSD': 'EURUSD000TOD', 'EURRUB': 'EUR_RUB__TOD'
+                            'EURUSD': 'EURUSD000TOD', 'EURRUB': 'EUR_RUB__TOD',
+                            'TRYRUB' : 'TRYRUB_TOD', 'USDTRY' : 'USDTRY_TOM'
+
                             }
         inversed_tickers = {'USDEUR': 'EURUSD000TOD',
                             'RUBUSD': 'USD000000TOD', 'RUBJPY': 'JPYRUB_TOD', 'RUBCNY': 'CNY000000TOD',
                             'RUBEUR': 'EUR_RUB__TOD',
-                            'JPYUSD': 'USDJPY_TOD', 'CNYUSD': 'USDCNY_TOD'}
+                            'JPYUSD': 'USDJPY_TOD', 'CNYUSD': 'USDCNY_TOD',
+                            'RUBTRY': 'TRYRUB_TOD', 'TRYUSD': 'USDTRY_TOM'
+                            }
 
         no_tickers = {'JPYCNY': '', 'JPYEUR': '',
                       'CNYJPY': '', 'CNYEUR': '',
-                      'EURJPY': '', 'EURCNY': ''}
+                      'EURJPY': '', 'EURCNY': '',
+                      'EURTRY': '', 'TRYEUR': '',
+                      'JPYTRY': '', 'TRYJPY': '',
+                      'CNYTRY': '', 'TRYCNY': ''
+                      }
         if base + quote in currency_tickers:
             url = f'http://iss.moex.com/iss/engines/currency/markets/selt/securities.json?iss.only=securities,' \
                   f'marketdata&securities=CETS:{currency_tickers.get(base + quote)}&iss.meta=off '
