@@ -19,7 +19,7 @@ class ConvertBot:
         self.bot = telebot.TeleBot(bot_token.TOKEN)
 
         self.currencies = {"рублей": "RUB", "рубль": "RUB", "рублях": "RUB", "рубли": "RUB", "рубля": "RUB",
-                           "доллар": "USD", "долларах": "USD", "долларов": "USD", "доллары": "USD",
+                           "доллар": "USD", "долларах": "USD", "долларов": "USD", "доллары": "USD", "доллара": "USD",
                            "евро": "EUR", "евров": "EUR",
                            "йена": "JPY", "иена": "JPY", "иен": "JPY", "иены": "JPY", "иенах": "JPY",
                            "йен": "JPY", "йены": "JPY", "йенах": "JPY",
